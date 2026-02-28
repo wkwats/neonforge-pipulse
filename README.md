@@ -66,11 +66,7 @@ Returns live telemetry JSON:
 
 ## Screenshot
 
-> Add your screenshot here (recommended path: `assets/dashboard.png`)
-
-```markdown
 ![NeonForge PiPulse Dashboard](assets/dashboard.png)
-```
 
 ---
 
