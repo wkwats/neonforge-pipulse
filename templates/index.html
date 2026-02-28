@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NeonForge PiPulse</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #06070d;
+      --card: rgba(19, 21, 35, 0.72);
+      --text: #e9ecff;
+      --muted: #97a0c3;
+      --accent: #65f3ff;
+      --accent2: #9b5dff;
+      --ok: #4cf08d;
+      --warn: #ffb347;
+      --danger: #ff6175;
+      --border: rgba(255,255,255,0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 10% 20%, #1c1540 0%, transparent 35%),
+        radial-gradient(circle at 80% 0%, #11355f 0%, transparent 30%),
+        radial-gradient(circle at 80% 85%, #2a1148 0%, transparent 30%),
+        var(--bg);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .wrap { max-width: 1300px; margin: 0 auto; }
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(1.4rem, 2.5vw, 2.2rem);
+      letter-spacing: 0.5px;
+      text-shadow: 0 0 24px rgba(101,243,255,.35);
+    }
+    .sub { color: var(--muted); margin-top: 4px; }
+    .badge {
+      background: linear-gradient(120deg, rgba(101,243,255,.25), rgba(155,93,255,.25));
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 8px 12px;
+      color: #d7dbff;
+      backdrop-filter: blur(8px);
+      align-self: start;
+    }
+    .grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 10px 35px rgba(0,0,0,.35);
+    }
+    .stat {
+      grid-column: span 3;
+      min-height: 110px;
+    }
+    .wide { grid-column: span 8; min-height: 290px; }
+    .mid { grid-column: span 4; min-height: 290px; }
+    .full { grid-column: span 12; }
+    @media (max-width: 980px) {
+      .stat, .wide, .mid { grid-column: span 12; }
+    }
+    .label { color: var(--muted); font-size: .9rem; }
+    .value { font-size: 1.7rem; margin-top: 8px; font-weight: 700; }
+    .tiny { color: var(--muted); font-size: .84rem; margin-top: 8px; }
+    .rows { display: grid; gap: 8px; margin-top: 10px; }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dashed rgba(255,255,255,.1);
+      padding-bottom: 6px;
+      color: #d4daf8;
+    }
+    .title { margin: 0 0 10px; color: #dfe5ff; font-size: 1.05rem; }
+    .pill {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 5px 10px;
+      font-size: .78rem;
+      border: 1px solid var(--border);
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <div>
+        <h1>⚡ NeonForge PiPulse</h1>
+        <div class="sub">Live Raspberry Pi telemetry command deck</div>
+      </div>
+      <div class="badge" id="liveBadge">Connecting…</div>
+    </div>
+
+    <div class="grid">
+      <div class="card stat">
+        <div class="label">CPU Usage</div>
+        <div class="value" id="cpuTotal">--%</div>
+        <div class="tiny" id="loadAvg">Load avg: --</div>
+      </div>
+
+      <div class="card stat">
+        <div class="label">CPU Temp</div>
+        <div class="value" id="cpuTemp">--°C</div>
+        <div class="tiny">Thermal health</div>
+      </div>
+
+      <div class="card stat">
+        <div class="label">Memory</div>
+        <div class="value" id="memPct">--%</div>
+        <div class="tiny" id="memAbs">-- / -- GB</div>
+      </div>
+
+      <div class="card stat">
+        <div class="label">Disk</div>
+        <div class="value" id="diskPct">--%</div>
+        <div class="tiny" id="diskAbs">-- / -- GB</div>
+      </div>
+
+      <div class="card wide">
+        <h3 class="title">CPU Trend <span class="pill">last 60 samples</span></h3>
+        <canvas id="cpuTrend"></canvas>
+      </div>
+
+      <div class="card mid">
+        <h3 class="title">Per-Core Snapshot</h3>
+        <canvas id="coreBars"></canvas>
+      </div>
+
+      <div class="card full">
+        <h3 class="title">Node Identity</h3>
+        <div class="rows">
+          <div class="row"><span>Hostname</span><span id="host">--</span></div>
+          <div class="row"><span>IP</span><span id="ip">--</span></div>
+          <div class="row"><span>Platform</span><span id="platform">--</span></div>
+          <div class="row"><span>Architecture</span><span id="arch">--</span></div>
+          <div class="row"><span>Boot Time</span><span id="boot">--</span></div>
+          <div class="row"><span>Network RX/TX</span><span id="net">--</span></div>
+          <div class="row"><span>Now</span><span id="now">--</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const trendCtx = document.getElementById('cpuTrend');
+  const coreCtx = document.getElementById('coreBars');
+
+  const trendData = {
+    labels: Array.from({length: 60}, (_, i) => i + 1),
+    datasets: [{
+      label: 'CPU %',
+      data: Array(60).fill(0),
+      tension: 0.35,
+      borderWidth: 2,
+      borderColor: '#65f3ff',
+      fill: true,
+      backgroundColor: 'rgba(101,243,255,.12)'
+    }]
+  };
+
+  const cpuTrendChart = new Chart(trendCtx, {
+    type: 'line',
+    data: trendData,
+    options: {
+      animation: false,
+      plugins: { legend: { labels: { color: '#cfd6ff' } } },
+      scales: {
+        x: { ticks: { display: false }, grid: { color: 'rgba(255,255,255,.05)' } },
+        y: { min: 0, max: 100, ticks: { color: '#9da6c9' }, grid: { color: 'rgba(255,255,255,.07)' } }
+      }
+    }
+  });
+
+  const coreChart = new Chart(coreCtx, {
+    type: 'bar',
+    data: {
+      labels: [],
+      datasets: [{
+        label: 'Core %',
+        data: [],
+        backgroundColor: 'rgba(155,93,255,.65)',
+        borderColor: '#b084ff',
+        borderWidth: 1
+      }]
+    },
+    options: {
+      animation: false,
+      plugins: { legend: { labels: { color: '#cfd6ff' } } },
+      scales: {
+        x: { ticks: { color: '#9da6c9' }, grid: { color: 'rgba(255,255,255,.05)' } },
+        y: { min: 0, max: 100, ticks: { color: '#9da6c9' }, grid: { color: 'rgba(255,255,255,.07)' } }
+      }
+    }
+  });
+
+  function tempMood(temp) {
+    if (temp >= 75) return '🔥 HOT';
+    if (temp >= 60) return '🌤 WARM';
+    return '❄️ COOL';
+  }
+
+  async function refresh() {
+    const badge = document.getElementById('liveBadge');
+    try {
+      const res = await fetch('/api/stats', { cache: 'no-store' });
+      const s = await res.json();
+
+      document.getElementById('cpuTotal').textContent = `${s.cpu_total}%`;
+      document.getElementById('cpuTemp').textContent = `${s.cpu_temp_c}°C`;
+      document.getElementById('memPct').textContent = `${s.memory.percent}%`;
+      document.getElementById('diskPct').textContent = `${s.disk.percent}%`;
+      document.getElementById('memAbs').textContent = `${s.memory.used_gb} / ${s.memory.total_gb} GB`;
+      document.getElementById('diskAbs').textContent = `${s.disk.used_gb} / ${s.disk.total_gb} GB`;
+      document.getElementById('loadAvg').textContent = `Load avg: ${s.load_avg.join(' | ')}`;
+
+      document.getElementById('host').textContent = s.hostname;
+      document.getElementById('ip').textContent = s.ip;
+      document.getElementById('platform').textContent = s.platform;
+      document.getElementById('arch').textContent = s.arch;
+      document.getElementById('boot').textContent = s.boot_time;
+      document.getElementById('now').textContent = s.now;
+      document.getElementById('net').textContent = `${s.network.bytes_recv_mb}MB ↓ / ${s.network.bytes_sent_mb}MB ↑`;
+
+      trendData.datasets[0].data.push(s.cpu_total);
+      trendData.datasets[0].data.shift();
+      cpuTrendChart.update();
+
+      coreChart.data.labels = s.cpu_per_core.map((_, i) => `C${i}`);
+      coreChart.data.datasets[0].data = s.cpu_per_core;
+      coreChart.update();
+
+      badge.textContent = `LIVE • ${tempMood(s.cpu_temp_c)}`;
+      badge.style.borderColor = s.cpu_temp_c >= 75 ? 'rgba(255,97,117,.6)' : 'rgba(255,255,255,.12)';
+    } catch (e) {
+      badge.textContent = 'Disconnected';
+      badge.style.borderColor = 'rgba(255,97,117,.6)';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 1200);
+</script>
+</body>
+</html>
