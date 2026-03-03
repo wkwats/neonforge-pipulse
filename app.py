@@ -1,83 +1,173 @@
-from datetime import datetime
-import os
-import platform
-import socket
+from __future__ import annotations
 
-import psutil
-from fastapi import FastAPI, Request
+import os
+import sqlite3
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="NeonForge PiPulse")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "pipulse.db"
+API_KEY = os.getenv("PIPULSE_INGEST_API_KEY", "change-me")
+
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
-def _local_ip() -> str:
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def _pretty_dt(value: str) -> str:
     try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
+        d = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone()
     except Exception:
-        return "127.0.0.1"
-    finally:
-        s.close()
+        return value
+
+    day = d.day
+    if 11 <= day <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+
+    return f"{d.strftime('%b')} {day}{suffix} {d.year} {d.strftime('%I:%M:%S%p').lstrip('0').lower()}"
 
 
-def _cpu_temp_c() -> float:
-    temps = psutil.sensors_temperatures(fahrenheit=False)
-    if not temps:
-        return 0.0
-    for entries in temps.values():
-        if entries:
-            return round(float(entries[0].current), 1)
-    return 0.0
+def _db() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_db() -> None:
+    with _db() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sensor_readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sensor_id TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                value REAL NOT NULL,
+                unit TEXT,
+                location TEXT,
+                recorded_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_sensor_metric_time
+            ON sensor_readings(sensor_id, metric, recorded_at)
+            """
+        )
+
+
+@app.on_event("startup")
+def startup() -> None:
+    _init_db()
 
 
 @app.get("/")
 async def dashboard(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    response = templates.TemplateResponse("index.html", {"request": request})
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return response
 
 
-@app.get("/api/stats")
-async def stats_api():
-    cpu_per_core = psutil.cpu_percent(interval=None, percpu=True)
-    cpu_total = round(psutil.cpu_percent(interval=None), 1)
+@app.post("/api/ingest")
+async def ingest_reading(
+    payload: dict[str, Any], x_api_key: str | None = Header(default=None)
+):
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
-    mem = psutil.virtual_memory()
-    disk = psutil.disk_usage("/")
+    sensor_id = str(payload.get("sensor_id", "")).strip()
+    metric = str(payload.get("metric", "")).strip()
 
-    net = psutil.net_io_counters()
-    boot = datetime.fromtimestamp(psutil.boot_time())
+    if not sensor_id or not metric:
+        raise HTTPException(status_code=400, detail="sensor_id and metric are required")
 
-    payload = {
-        "hostname": socket.gethostname(),
-        "ip": _local_ip(),
-        "platform": platform.platform(),
-        "arch": platform.machine(),
-        "cpu_total": cpu_total,
-        "cpu_per_core": [round(v, 1) for v in cpu_per_core],
-        "cpu_temp_c": _cpu_temp_c(),
-        "load_avg": [round(v, 2) for v in os.getloadavg()],
-        "memory": {
-            "used_gb": round(mem.used / (1024 ** 3), 2),
-            "total_gb": round(mem.total / (1024 ** 3), 2),
-            "percent": round(mem.percent, 1),
-        },
-        "disk": {
-            "used_gb": round(disk.used / (1024 ** 3), 2),
-            "total_gb": round(disk.total / (1024 ** 3), 2),
-            "percent": round(disk.percent, 1),
-        },
-        "network": {
-            "bytes_sent_mb": round(net.bytes_sent / (1024 ** 2), 2),
-            "bytes_recv_mb": round(net.bytes_recv / (1024 ** 2), 2),
-        },
-        "boot_time": boot.strftime("%Y-%m-%d %H:%M:%S"),
-        "now": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    }
+    try:
+        value = float(payload.get("value"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="value must be numeric")
 
-    return JSONResponse(payload)
+    unit = payload.get("unit")
+    location = payload.get("location")
+    recorded_at = payload.get("recorded_at") or datetime.now(timezone.utc).isoformat()
+
+    with _db() as conn:
+        conn.execute(
+            """
+            INSERT INTO sensor_readings(sensor_id, metric, value, unit, location, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (sensor_id, metric, value, unit, location, recorded_at),
+        )
+
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/sensors/latest")
+async def sensors_latest():
+    with _db() as conn:
+        rows = conn.execute(
+            """
+            SELECT sensor_id, metric, value, unit, location, recorded_at
+            FROM sensor_readings r
+            WHERE id = (
+                SELECT id FROM sensor_readings
+                WHERE sensor_id = r.sensor_id AND metric = r.metric
+                ORDER BY recorded_at DESC, id DESC
+                LIMIT 1
+            )
+            ORDER BY sensor_id, metric
+            """
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["recorded_at_pretty"] = _pretty_dt(str(item.get("recorded_at", "")))
+        items.append(item)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    return JSONResponse(
+        {
+            "items": items,
+            "count": len(items),
+            "now": now_iso,
+            "now_pretty": _pretty_dt(now_iso),
+        }
+    )
+
+
+@app.get("/api/sensors/history")
+async def sensor_history(
+    sensor_id: str = Query(..., min_length=1),
+    metric: str = Query(..., min_length=1),
+    minutes: int = Query(360, ge=5, le=10080),
+):
+    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+
+    with _db() as conn:
+        rows = conn.execute(
+            """
+            SELECT recorded_at, value
+            FROM sensor_readings
+            WHERE sensor_id = ? AND metric = ? AND recorded_at >= ?
+            ORDER BY recorded_at ASC
+            """,
+            (sensor_id, metric, since),
+        ).fetchall()
+
+    return JSONResponse(
+        {
+            "sensor_id": sensor_id,
+            "metric": metric,
+            "points": [dict(row) for row in rows],
+        }
+    )

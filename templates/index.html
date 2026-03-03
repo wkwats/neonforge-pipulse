@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NeonForge PiPulse</title>
+  <title>NeonForge PiPulse — Sensor Hub</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
@@ -13,9 +13,6 @@
       --muted: #97a0c3;
       --accent: #65f3ff;
       --accent2: #9b5dff;
-      --ok: #4cf08d;
-      --warn: #ffb347;
-      --danger: #ff6175;
       --border: rgba(255,255,255,0.12);
     }
     * { box-sizing: border-box; }
@@ -32,232 +29,178 @@
       padding: 24px;
     }
     .wrap { max-width: 1300px; margin: 0 auto; }
-    .header {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 18px;
-    }
-    h1 {
-      margin: 0;
-      font-size: clamp(1.4rem, 2.5vw, 2.2rem);
-      letter-spacing: 0.5px;
-      text-shadow: 0 0 24px rgba(101,243,255,.35);
-    }
+    .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
+    h1 { margin: 0; font-size: clamp(1.4rem, 2.5vw, 2.2rem); text-shadow: 0 0 24px rgba(101,243,255,.35); }
     .sub { color: var(--muted); margin-top: 4px; }
     .badge {
-      background: linear-gradient(120deg, rgba(101,243,255,.25), rgba(155,93,255,.25));
       border: 1px solid var(--border);
       border-radius: 999px;
       padding: 8px 12px;
       color: #d7dbff;
-      backdrop-filter: blur(8px);
-      align-self: start;
+      align-self: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      min-height: 40px;
+      margin-left: auto;
     }
-    .grid {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: repeat(12, 1fr);
-    }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 16px;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 10px 35px rgba(0,0,0,.35);
-    }
-    .stat {
-      grid-column: span 3;
-      min-height: 110px;
-    }
-    .wide { grid-column: span 8; min-height: 290px; }
-    .mid { grid-column: span 4; min-height: 290px; }
-    .full { grid-column: span 12; }
-    @media (max-width: 980px) {
-      .stat, .wide, .mid { grid-column: span 12; }
-    }
-    .label { color: var(--muted); font-size: .9rem; }
-    .value { font-size: 1.7rem; margin-top: 8px; font-weight: 700; }
-    .tiny { color: var(--muted); font-size: .84rem; margin-top: 8px; }
-    .rows { display: grid; gap: 8px; margin-top: 10px; }
-    .row {
-      display: flex;
-      justify-content: space-between;
-      border-bottom: 1px dashed rgba(255,255,255,.1);
-      padding-bottom: 6px;
-      color: #d4daf8;
-    }
-    .title { margin: 0 0 10px; color: #dfe5ff; font-size: 1.05rem; }
-    .pill {
-      display: inline-block;
-      border-radius: 999px;
-      padding: 5px 10px;
-      font-size: .78rem;
-      border: 1px solid var(--border);
-      margin-left: 8px;
-    }
+    .grid { display: grid; gap: 14px; grid-template-columns: repeat(12, 1fr); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 16px; }
+    .stats { grid-column: span 12; }
+    .chart { grid-column: span 8; min-height: 320px; }
+    .list { grid-column: span 4; min-height: 320px; }
+    @media (max-width: 980px) { .chart, .list { grid-column: span 12; } }
+    .title { margin: 0 0 12px; }
+    .sensor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+    .sensor { border: 1px solid var(--border); border-radius: 12px; padding: 10px; cursor: pointer; }
+    .sensor:hover { border-color: rgba(101,243,255,.5); }
+    .sensor.active { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(101,243,255,.35) inset; }
+    .tiny { color: var(--muted); font-size: .84rem; }
+    #sensorList { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
+    .row { border-bottom: 1px dashed rgba(255,255,255,.1); padding-bottom: 6px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="header">
       <div>
-        <h1>⚡ NeonForge PiPulse</h1>
-        <div class="sub">Live Raspberry Pi telemetry command deck</div>
+        <h1>🏠 NeonForge PiPulse</h1>
+        <div class="sub">Home sensor dashboard</div>
       </div>
-      <div class="badge" id="liveBadge">Connecting…</div>
+      <div class="badge" id="liveBadge">Loading…</div>
     </div>
 
     <div class="grid">
-      <div class="card stat">
-        <div class="label">CPU Usage</div>
-        <div class="value" id="cpuTotal">--%</div>
-        <div class="tiny" id="loadAvg">Load avg: --</div>
+      <div class="card stats">
+        <h3 class="title">Latest Sensor Readings</h3>
+        <div id="cards" class="sensor-grid"></div>
       </div>
 
-      <div class="card stat">
-        <div class="label">CPU Temp</div>
-        <div class="value" id="cpuTemp">--°C</div>
-        <div class="tiny">Thermal health</div>
+      <div class="card chart">
+        <h3 class="title" id="chartTitle">Trend</h3>
+        <canvas id="historyChart"></canvas>
       </div>
 
-      <div class="card stat">
-        <div class="label">Memory</div>
-        <div class="value" id="memPct">--%</div>
-        <div class="tiny" id="memAbs">-- / -- GB</div>
-      </div>
-
-      <div class="card stat">
-        <div class="label">Disk</div>
-        <div class="value" id="diskPct">--%</div>
-        <div class="tiny" id="diskAbs">-- / -- GB</div>
-      </div>
-
-      <div class="card wide">
-        <h3 class="title">CPU Trend <span class="pill">last 60 samples</span></h3>
-        <canvas id="cpuTrend"></canvas>
-      </div>
-
-      <div class="card mid">
-        <h3 class="title">Per-Core Snapshot</h3>
-        <canvas id="coreBars"></canvas>
-      </div>
-
-      <div class="card full">
-        <h3 class="title">Node Identity</h3>
-        <div class="rows">
-          <div class="row"><span>Hostname</span><span id="host">--</span></div>
-          <div class="row"><span>IP</span><span id="ip">--</span></div>
-          <div class="row"><span>Platform</span><span id="platform">--</span></div>
-          <div class="row"><span>Architecture</span><span id="arch">--</span></div>
-          <div class="row"><span>Boot Time</span><span id="boot">--</span></div>
-          <div class="row"><span>Network RX/TX</span><span id="net">--</span></div>
-          <div class="row"><span>Now</span><span id="now">--</span></div>
-        </div>
+      <div class="card list">
+        <h3 class="title">Sensors</h3>
+        <div id="sensorList"></div>
       </div>
     </div>
   </div>
 
 <script>
-  const trendCtx = document.getElementById('cpuTrend');
-  const coreCtx = document.getElementById('coreBars');
+  const badge = document.getElementById('liveBadge');
+  const cardsEl = document.getElementById('cards');
+  const listEl = document.getElementById('sensorList');
+  const chartTitle = document.getElementById('chartTitle');
 
-  const trendData = {
-    labels: Array.from({length: 60}, (_, i) => i + 1),
-    datasets: [{
-      label: 'CPU %',
-      data: Array(60).fill(0),
-      tension: 0.35,
-      borderWidth: 2,
-      borderColor: '#65f3ff',
-      fill: true,
-      backgroundColor: 'rgba(101,243,255,.12)'
-    }]
-  };
+  let selected = null;
 
-  const cpuTrendChart = new Chart(trendCtx, {
+  const chart = new Chart(document.getElementById('historyChart'), {
     type: 'line',
-    data: trendData,
+    data: { labels: [], datasets: [{ label: 'Value', data: [], borderColor: '#65f3ff', backgroundColor: 'rgba(101,243,255,.12)', fill: true, tension: 0.35 }] },
     options: {
       animation: false,
-      plugins: { legend: { labels: { color: '#cfd6ff' } } },
-      scales: {
-        x: { ticks: { display: false }, grid: { color: 'rgba(255,255,255,.05)' } },
-        y: { min: 0, max: 100, ticks: { color: '#9da6c9' }, grid: { color: 'rgba(255,255,255,.07)' } }
-      }
-    }
-  });
-
-  const coreChart = new Chart(coreCtx, {
-    type: 'bar',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'Core %',
-        data: [],
-        backgroundColor: 'rgba(155,93,255,.65)',
-        borderColor: '#b084ff',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      animation: false,
-      plugins: { legend: { labels: { color: '#cfd6ff' } } },
       scales: {
         x: { ticks: { color: '#9da6c9' }, grid: { color: 'rgba(255,255,255,.05)' } },
-        y: { min: 0, max: 100, ticks: { color: '#9da6c9' }, grid: { color: 'rgba(255,255,255,.07)' } }
-      }
+        y: { ticks: { color: '#9da6c9' }, grid: { color: 'rgba(255,255,255,.07)' } }
+      },
+      plugins: { legend: { labels: { color: '#cfd6ff' } } }
     }
   });
 
-  function tempMood(temp) {
-    if (temp >= 75) return '🔥 HOT';
-    if (temp >= 60) return '🌤 WARM';
-    return '❄️ COOL';
+  function sensorKey(item) {
+    return `${item.sensor_id}::${item.metric}`;
+  }
+
+  function formatPrettyDateTime(input) {
+    const d = new Date(input);
+    if (Number.isNaN(d.getTime())) return input;
+
+    const day = d.getDate();
+    const suffix = (n) => {
+      if (n >= 11 && n <= 13) return 'th';
+      const last = n % 10;
+      if (last === 1) return 'st';
+      if (last === 2) return 'nd';
+      if (last === 3) return 'rd';
+      return 'th';
+    };
+
+    const month = d.toLocaleString('en-US', { month: 'short' });
+    const year = d.getFullYear();
+    const time = d.toLocaleString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    }).toLowerCase();
+
+    return `${month} ${day}${suffix(day)} ${year} ${time}`;
+  }
+
+  function renderLatest(items) {
+    cardsEl.innerHTML = '';
+    listEl.innerHTML = '';
+
+    if (!items.length) {
+      cardsEl.innerHTML = '<div class="tiny">No sensor data yet. Post readings to /api/ingest.</div>';
+      return;
+    }
+
+    items.forEach(item => {
+      const key = sensorKey(item);
+
+      const card = document.createElement('div');
+      card.className = `sensor ${selected === key ? 'active' : ''}`;
+      card.innerHTML = `
+        <div><strong>${item.metric}</strong></div>
+        <div style="font-size:1.4rem;margin:4px 0;">${item.value} ${item.unit || ''}</div>
+        <div class="tiny">${item.sensor_id}${item.location ? ` • ${item.location}` : ''}</div>
+      `;
+      card.onclick = () => pick(item);
+      cardsEl.appendChild(card);
+
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.innerHTML = `<div><strong>${item.sensor_id}</strong> • ${item.metric}</div><div class="tiny">${item.recorded_at_pretty || formatPrettyDateTime(item.recorded_at)}</div>`;
+      row.onclick = () => pick(item);
+      listEl.appendChild(row);
+    });
+  }
+
+  async function pick(item) {
+    selected = sensorKey(item);
+    renderLatest(window.__latestItems || []);
+    chartTitle.textContent = `${item.sensor_id} • ${item.metric} (last 6h)`;
+
+    const res = await fetch(`/api/sensors/history?sensor_id=${encodeURIComponent(item.sensor_id)}&metric=${encodeURIComponent(item.metric)}&minutes=360`);
+    const data = await res.json();
+
+    chart.data.labels = data.points.map(p => new Date(p.recorded_at).toLocaleTimeString());
+    chart.data.datasets[0].data = data.points.map(p => p.value);
+    chart.update();
   }
 
   async function refresh() {
-    const badge = document.getElementById('liveBadge');
     try {
-      const res = await fetch('/api/stats', { cache: 'no-store' });
-      const s = await res.json();
+      const res = await fetch('/api/sensors/latest', { cache: 'no-store' });
+      const data = await res.json();
+      window.__latestItems = data.items || [];
+      renderLatest(window.__latestItems);
 
-      document.getElementById('cpuTotal').textContent = `${s.cpu_total}%`;
-      document.getElementById('cpuTemp').textContent = `${s.cpu_temp_c}°C`;
-      document.getElementById('memPct').textContent = `${s.memory.percent}%`;
-      document.getElementById('diskPct').textContent = `${s.disk.percent}%`;
-      document.getElementById('memAbs').textContent = `${s.memory.used_gb} / ${s.memory.total_gb} GB`;
-      document.getElementById('diskAbs').textContent = `${s.disk.used_gb} / ${s.disk.total_gb} GB`;
-      document.getElementById('loadAvg').textContent = `Load avg: ${s.load_avg.join(' | ')}`;
+      badge.textContent = `LIVE • ${data.count} metrics • ${data.now_pretty || formatPrettyDateTime(data.now)}`;
 
-      document.getElementById('host').textContent = s.hostname;
-      document.getElementById('ip').textContent = s.ip;
-      document.getElementById('platform').textContent = s.platform;
-      document.getElementById('arch').textContent = s.arch;
-      document.getElementById('boot').textContent = s.boot_time;
-      document.getElementById('now').textContent = s.now;
-      document.getElementById('net').textContent = `${s.network.bytes_recv_mb}MB ↓ / ${s.network.bytes_sent_mb}MB ↑`;
-
-      trendData.datasets[0].data.push(s.cpu_total);
-      trendData.datasets[0].data.shift();
-      cpuTrendChart.update();
-
-      coreChart.data.labels = s.cpu_per_core.map((_, i) => `C${i}`);
-      coreChart.data.datasets[0].data = s.cpu_per_core;
-      coreChart.update();
-
-      badge.textContent = `LIVE • ${tempMood(s.cpu_temp_c)}`;
-      badge.style.borderColor = s.cpu_temp_c >= 75 ? 'rgba(255,97,117,.6)' : 'rgba(255,255,255,.12)';
+      if (!selected && window.__latestItems.length) {
+        await pick(window.__latestItems[0]);
+      }
     } catch (e) {
       badge.textContent = 'Disconnected';
-      badge.style.borderColor = 'rgba(255,97,117,.6)';
     }
   }
 
   refresh();
-  setInterval(refresh, 1200);
+  setInterval(refresh, 4000);
 </script>
 </body>
 </html>

@@ -1,22 +1,16 @@
 # ⚡ NeonForge PiPulse
 
-A beautiful real-time Raspberry Pi telemetry dashboard built with **FastAPI**.
-
-Monitor your Pi from any device on your local network using:
-
-`http://<PI_IP>:8090`
+Sensor-first home telemetry dashboard built with **FastAPI**.
 
 ---
 
-## Features
+## What it is now
 
-- Live CPU usage (total + per-core)
-- CPU temperature
-- Memory and disk usage
-- Load averages
-- Network RX/TX counters
-- Host identity and system info
-- Neon-styled dashboard UI with Chart.js visualizations
+PiPulse is now focused on **house sensors** (temperature, humidity, motion, etc.) instead of Pi host stats.
+
+- Ingest sensor readings via API
+- Store data in local SQLite (`pipulse.db`)
+- View latest values + 6h trend chart in neon dashboard UI
 
 ---
 
@@ -25,7 +19,7 @@ Monitor your Pi from any device on your local network using:
 - FastAPI
 - Uvicorn
 - Jinja2 templates
-- psutil
+- SQLite (stdlib)
 - Chart.js
 
 ---
@@ -36,48 +30,45 @@ Monitor your Pi from any device on your local network using:
 cd /home/wkwats/NeonForge-PiPulse
 python3 -m venv .venv
 source .venv/bin/activate
-pip install fastapi uvicorn jinja2 psutil
+pip install fastapi uvicorn jinja2
+export PIPULSE_INGEST_API_KEY="replace-with-strong-key"
 uvicorn app:app --host 0.0.0.0 --port 8090
 ```
 
-Then open:
-
-- Local on Pi: `http://127.0.0.1:8090`
-- LAN: `http://<PI_IP>:8090`
+Open dashboard:
+- `http://127.0.0.1:8090`
 
 ---
 
 ## API
 
-### `GET /`
-Serves the dashboard page.
+### `POST /api/ingest`
+Add one sensor reading.
 
-### `GET /api/stats`
-Returns live telemetry JSON:
+Header:
+- `x-api-key: <PIPULSE_INGEST_API_KEY>`
 
-- CPU usage
-- CPU temp
-- load averages
-- memory + disk stats
-- network counters
-- host/platform info
+Body example:
 
----
+```json
+{
+  "sensor_id": "living-room-esp32",
+  "metric": "temperature",
+  "value": 27.4,
+  "unit": "°C",
+  "location": "living room"
+}
+```
 
-## Screenshot
+### `GET /api/sensors/latest`
+Returns latest reading per `sensor_id + metric`.
 
-![NeonForge PiPulse Dashboard](assets/dashboard.png)
-
----
-
-## Project Notes
-
-Internal project tracker is kept in:
-
-- `PROJECT_TRACKER.md`
+### `GET /api/sensors/history?sensor_id=...&metric=...&minutes=360`
+Returns historical points for charting.
 
 ---
 
-## License
+## Notes
 
-MIT (or your preferred license)
+- Default API key fallback is `change-me` — **always set your own key** before deployment.
+- For internet exposure, place behind HTTPS reverse proxy and add stronger auth.
